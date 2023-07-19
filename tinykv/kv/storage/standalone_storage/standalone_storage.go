@@ -32,15 +32,27 @@ func (s *StandAloneStorage) Stop() error {
 
 func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
 	// YOUR CODE HERE (lab1).
-	panic("not implemented yet")
-	return nil, nil
+	return NewBadgerReader(s.db.NewTransaction(false)), nil
 }
 
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
 	// YOUR CODE HERE (lab1).
 	// Try to check the definition of `storage.Modify` and txn interface of `badger`.
 	// As the column family is not supported by `badger`, a wrapper is used to simulate it.
-	panic("not implemented yet")
+	txn := s.db.NewTransaction(true)
+	var err error
+	for _, modify := range batch {
+		switch modify.Data.(type) {
+		case storage.Put:
+			err = txn.Set(engine_util.KeyWithCF(modify.Cf(), modify.Key()), modify.Value())
+		case storage.Delete:
+			err = txn.Delete(engine_util.KeyWithCF(modify.Cf(), modify.Key()))
+		}
+		if err != nil {
+			return err
+		}
+		txn.Commit()
+	}
 	return nil
 }
 

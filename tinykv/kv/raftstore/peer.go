@@ -186,7 +186,7 @@ func (p *peer) nextProposalIndex() uint64 {
 	return p.RaftGroup.Raft.RaftLog.LastIndex() + 1
 }
 
-/// Tries to destroy itself. Returns a job (if needed) to do more cleaning tasks.
+// / Tries to destroy itself. Returns a job (if needed) to do more cleaning tasks.
 func (p *peer) MaybeDestroy() bool {
 	if p.stopped {
 		log.Info(fmt.Sprintf("%v is being destroyed, skip", p.Tag))
@@ -195,10 +195,10 @@ func (p *peer) MaybeDestroy() bool {
 	return true
 }
 
-/// Does the real destroy worker.Task which includes:
-/// 1. Set the region to tombstone;
-/// 2. Clear data;
-/// 3. Notify all pending requests.
+// / Does the real destroy worker.Task which includes:
+// / 1. Set the region to tombstone;
+// / 2. Clear data;
+// / 3. Notify all pending requests.
 func (p *peer) Destroy(engine *engine_util.Engines, keepData bool) error {
 	start := time.Now()
 	region := p.Region()
@@ -246,10 +246,10 @@ func (p *peer) Region() *metapb.Region {
 	return p.peerStorage.Region()
 }
 
-/// Set the region of a peer.
-///
-/// This will update the region of the peer, caller must ensure the region
-/// has been preserved in a durable device.
+// / Set the region of a peer.
+// /
+// / This will update the region of the peer, caller must ensure the region
+// / has been preserved in a durable device.
 func (p *peer) SetRegion(region *metapb.Region) {
 	p.peerStorage.SetRegion(region)
 }
@@ -266,7 +266,7 @@ func (p *peer) IsLeader() bool {
 	return p.RaftGroup.Raft.State == raft.StateLeader
 }
 
-/// Returns `true` if the raft group has replicated a snapshot but not committed it yet.
+// / Returns `true` if the raft group has replicated a snapshot but not committed it yet.
 func (p *peer) HasPendingSnapshot() bool {
 	return p.RaftGroup.GetSnap() != nil
 }
@@ -280,7 +280,7 @@ func (p *peer) Send(trans Transport, msgs []eraftpb.Message) {
 	}
 }
 
-/// Collects all pending peers and update `peers_start_pending_time`.
+// / Collects all pending peers and update `peers_start_pending_time`.
 func (p *peer) CollectPendingPeers() []*metapb.Peer {
 	pendingPeers := make([]*metapb.Peer, 0, len(p.Region().GetPeers()))
 	truncatedIdx := p.peerStorage.truncatedIndex()
@@ -308,8 +308,8 @@ func (p *peer) clearPeersStartPendingTime() {
 	}
 }
 
-/// Returns `true` if any new peer catches up with the leader in replicating logs.
-/// And updates `PeersStartPendingTime` if needed.
+// / Returns `true` if any new peer catches up with the leader in replicating logs.
+// / And updates `PeersStartPendingTime` if needed.
 func (p *peer) AnyNewPeerCatchUp(peerId uint64) bool {
 	if len(p.PeersStartPendingTime) == 0 {
 		return false
@@ -367,7 +367,10 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 
 	// YOUR CODE HERE (lab1). There are some missing code pars marked with `Hint` above, try to finish them.
 	// Hint1: check if there's ready to be processed, if no return directly.
-	panic("not implemented yet")
+	if !p.RaftGroup.HasReady() {
+		log.Debug(fmt.Sprintf("%v no raft ready", p.Tag))
+		return nil, msgs
+	}
 
 	// Start to handle the raft ready.
 	log.Debug(fmt.Sprintf("%v handle raft ready", p.Tag))
@@ -426,7 +429,8 @@ func (p *peer) HandleRaftReady(msgs []message.Msg, pdScheduler chan<- worker.Tas
 	// YOUR CODE HERE (lab1). There are some missing code pars marked with `Hint` above, try to finish them.
 	// Hint2: Try to advance the states in the raft group of this peer after processing the raft ready.
 	//        Check about the `Advance` method in for the raft group.
-	panic("not implemented yet")
+	// 在处理完ready后尝试推进该peer所在raft group的状态
+	p.RaftGroup.Advance(ready)
 
 	return applySnapResult, msgs
 }
@@ -543,12 +547,12 @@ func (p *peer) PostPropose(index, term uint64, isConfChange bool, cb *message.Ca
 	p.applyProposals = append(p.applyProposals, proposal)
 }
 
-/// Count the number of the healthy nodes.
-/// A node is healthy when
-/// 1. it's the leader of the Raft group, which has the latest logs
-/// 2. it's a follower, and it does not lag behind the leader a lot.
-///    If a snapshot is involved between it and the Raft leader, it's not healthy since
-///    it cannot works as a node in the quorum to receive replicating logs from leader.
+// / Count the number of the healthy nodes.
+// / A node is healthy when
+// / 1. it's the leader of the Raft group, which has the latest logs
+// / 2. it's a follower, and it does not lag behind the leader a lot.
+// /    If a snapshot is involved between it and the Raft leader, it's not healthy since
+// /    it cannot works as a node in the quorum to receive replicating logs from leader.
 func (p *peer) countHealthyNode(progress map[uint64]raft.Progress) int {
 	healthy := 0
 	for _, pr := range progress {
@@ -559,18 +563,18 @@ func (p *peer) countHealthyNode(progress map[uint64]raft.Progress) int {
 	return healthy
 }
 
-/// Validate the `ConfChange` request and check whether it's safe to
-/// propose the specified conf change request.
-/// It's safe iff at least the quorum of the Raft group is still healthy
-/// right after that conf change is applied.
-/// Define the total number of nodes in current Raft cluster to be `total`.
-/// To ensure the above safety, if the cmd is
-/// 1. A `AddNode` request
-///    Then at least '(total + 1)/2 + 1' nodes need to be up to date for now.
-/// 2. A `RemoveNode` request
-///    Then at least '(total - 1)/2 + 1' other nodes (the node about to be removed is excluded)
-///    need to be up to date for now. If 'allow_remove_leader' is false then
-///    the peer to be removed should not be the leader.
+// / Validate the `ConfChange` request and check whether it's safe to
+// / propose the specified conf change request.
+// / It's safe iff at least the quorum of the Raft group is still healthy
+// / right after that conf change is applied.
+// / Define the total number of nodes in current Raft cluster to be `total`.
+// / To ensure the above safety, if the cmd is
+// / 1. A `AddNode` request
+// /    Then at least '(total + 1)/2 + 1' nodes need to be up to date for now.
+// / 2. A `RemoveNode` request
+// /    Then at least '(total - 1)/2 + 1' other nodes (the node about to be removed is excluded)
+// /    need to be up to date for now. If 'allow_remove_leader' is false then
+// /    the peer to be removed should not be the leader.
 func (p *peer) checkConfChange(cfg *config.Config, cmd *raft_cmdpb.RaftCmdRequest) error {
 	changePeer := GetChangePeerCmd(cmd)
 	changeType := changePeer.GetChangeType()

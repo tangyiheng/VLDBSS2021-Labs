@@ -34,6 +34,7 @@ import (
 func main() {
 	cfg := config.NewConfig()
 	err := cfg.Parse(os.Args[1:])
+	cfg.Log.Level = "debug"
 
 	if cfg.Version {
 		server.PrintPDInfo()
