@@ -14,12 +14,17 @@ type Command interface {
 	Context() *kvrpcpb.Context
 	StartTs() uint64
 	// WillWrite returns a list of all keys that might be written by this command. Return nil if the command is readonly.
+	// WillWrite返回可能由该命令写入的所有键的列表。如果命令是只读的，则返回nil。
 	WillWrite() [][]byte
 	// Read executes a readonly part of the command. Only called if WillWrite returns nil. If the command needs to write
 	// to the DB it should return a non-nil set of keys that the command will write.
+	// Read执行命令的只读部分。仅在WillWrite返回nil时调用。如命令需要写入数据库，则应返回果命令将写入的键的非nil集合。
 	Read(txn *mvcc.RoTxn) (interface{}, [][]byte, error)
 	// PrepareWrites is for building writes in an mvcc transaction. Commands can also make non-transactional
 	// reads and writes using txn. Returning without modifying txn means that no transaction will be executed.
+	// PrepareWrites用于在mvcc事务中构建写操作。
+	// 命令也可以使用txn进行非事务性的读取和写入。
+	// 如果在不修改txn的情况下返回，则表示不会执行任何事务。
 	PrepareWrites(txn *mvcc.MvccTxn) (interface{}, error)
 }
 

@@ -743,6 +743,10 @@ func (m *GetResponse) GetNotFound() bool {
 // writes (mutations) which a client would like to make as part of a transaction. The
 // request succeeds if none of the keys are locked. In that case all those keys will
 // be locked. If the prewrite fails, no changes are made to the DB.
+// Prewrite是两阶段提交的第一阶段。
+// Prewrite操作包含客户端在事务中想要进行的所有写入（变更）。
+// 如果没有任何键被锁定，则请求成功。在这种情况下，所有这些键都将被锁定。
+// 如果Prewrite操作失败，则不会对数据库进行任何更改。
 type PrewriteRequest struct {
 	Context   *Context    `protobuf:"bytes,1,opt,name=context" json:"context,omitempty"`
 	Mutations []*Mutation `protobuf:"bytes,2,rep,name=mutations" json:"mutations,omitempty"`
@@ -884,6 +888,10 @@ func (m *PrewriteResponse) GetErrors() []*KeyError {
 // then the commit should succeed. If any keys are locked by a different
 // transaction or are not locked at all (rolled back or expired), the commit
 // fails.
+// Commit是两阶段提交的第二阶段。
+// 客户端必须已成功将事务的预写操作提交到所有节点。
+// 如果给定事务锁定了所有键，则提交应该成功。
+// 如果任何键被不同的事务锁定或者根本没有被锁定（已回滚或已过期），则提交失败。
 type CommitRequest struct {
 	Context *Context `protobuf:"bytes,1,opt,name=context" json:"context,omitempty"`
 	// Identifies the transaction, must match the start_version in the transaction's
@@ -1148,6 +1156,10 @@ func (m *ScanResponse) GetPairs() []*KvPair {
 // been committed or keys are locked by a different transaction. If the keys were never
 // locked, no action is needed but it is not an error.  If successful all keys will be
 // unlocked and all uncommitted values removed.
+// 回滚一个未提交的事务。
+// 如果事务已经提交或者键被其他事务锁定，则会失败。
+// 如果键从未被锁定，则不需要任何操作，但不会报错。
+// 如果成功，所有的键将被解锁并且所有未提交的值将被移除。
 type BatchRollbackRequest struct {
 	Context              *Context `protobuf:"bytes,1,opt,name=context" json:"context,omitempty"`
 	StartVersion         uint64   `protobuf:"varint,2,opt,name=start_version,json=startVersion,proto3" json:"start_version,omitempty"`
@@ -1272,6 +1284,10 @@ func (m *BatchRollbackResponse) GetError() *KeyError {
 // If the transaction has previously been rolled back or committed, return that information.
 // If the TTL of the transaction is exhausted, abort that transaction and roll back the primary lock.
 // Otherwise, returns the TTL information.
+// CheckTxnStatus报告事务的状态，并可能采取措施回滚已过期的锁定。
+// 如果事务先前已回滚或提交，则返回该信息。
+// 如果事务的生存时间（TTL）耗尽，则中止该事务并回滚主锁定。
+// 否则，返回TTL信息。
 type CheckTxnStatusRequest struct {
 	Context              *Context `protobuf:"bytes,1,opt,name=context" json:"context,omitempty"`
 	PrimaryKey           []byte   `protobuf:"bytes,2,opt,name=primary_key,json=primaryKey,proto3" json:"primary_key,omitempty"`
@@ -1424,6 +1440,10 @@ func (m *CheckTxnStatusResponse) GetAction() Action {
 // 0 it will commit those locks with the given commit timestamp.
 // The client will make a resolve lock request for all secondary keys once it has successfully
 // committed or rolled back the primary key.
+// 解析锁会找到所有属于给定开始时间戳的事务的锁。
+// 如果 commit_version 为 0，TinyKV 将回滚所有锁。
+// 如果 commit_version 大于 0 时，TinyKV 将提交那些具有给定提交时间戳的锁。
+// 一旦成功提交或回滚了主键，客户端将对所有secondary keys提出解析锁请求。
 type ResolveLockRequest struct {
 	Context              *Context `protobuf:"bytes,1,opt,name=context" json:"context,omitempty"`
 	StartVersion         uint64   `protobuf:"varint,2,opt,name=start_version,json=startVersion,proto3" json:"start_version,omitempty"`
