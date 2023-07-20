@@ -159,14 +159,21 @@ func (lr *LockResolver) getResolved(txnID uint64) (TxnStatus, bool) {
 }
 
 // ResolveLocks tries to resolve Locks. The resolving process is in 3 steps:
-// 1) Use the `lockTTL` to pick up all expired locks. Only locks that are too
-//    old are considered orphan locks and will be handled later. If all locks
-//    are expired then all locks will be resolved so the returned `ok` will be
-//    true, otherwise caller should sleep a while before retry.
-// 2) For each lock, query the primary key to get txn(which left the lock)'s
-//    commit status.
-// 3) Send `ResolveLock` cmd to the lock's region to resolve all locks belong to
-//    the same transaction.
+//  1. Use the `lockTTL` to pick up all expired locks. Only locks that are too
+//     old are considered orphan locks and will be handled later. If all locks
+//     are expired then all locks will be resolved so the returned `ok` will be
+//     true, otherwise caller should sleep a while before retry.
+//  2. For each lock, query the primary key to get txn(which left the lock)'s
+//     commit status.
+//  3. Send `ResolveLock` cmd to the lock's region to resolve all locks belong to
+//     the same transaction.
+//
+// ResolveLocks 尝试解决锁定。解决过程分为3个步骤：
+// 1. 使用 lockTTL 选择所有过期的锁定。
+// 只有过旧的锁定被认为是孤立的锁定，稍后将处理。
+// 如果所有锁定都已过期，则所有锁定都会被解决，因此返回的 ok 值将为 true，否则调用者应该在重试之前休眠一段时间。
+// 2. 对于每个锁定，查询主键以获取释放锁定的事务的提交状态。
+// 3. 向锁定所在的区域发送 ResolveLock 命令以解决所有属于同一事务的锁定。
 func (lr *LockResolver) ResolveLocks(bo *Backoffer, callerStartTS uint64, locks []*Lock) (int64, []uint64 /*pushed*/, error) {
 	var msBeforeTxnExpired txnExpireTime
 	if len(locks) == 0 {
@@ -187,6 +194,7 @@ func (lr *LockResolver) ResolveLocks(bo *Backoffer, callerStartTS uint64, locks 
 		}
 
 		if status.ttl == 0 {
+			// commit or rollback
 			// If the lock is committed or rollbacked, resolve lock.
 			cleanRegions, exists := cleanTxns[l.TxnID]
 			if !exists {
@@ -249,6 +257,9 @@ func (t *txnExpireTime) value() int64 {
 // If the primary key is still locked, it will launch a Rollback to abort it.
 // To avoid unnecessarily aborting too many txns, it is wiser to wait a few
 // seconds before calling it after Prewrite.
+// 询问 tikv 服务器 txn 的状态（提交/回滚）。
+// 如果主键仍处于锁定状态，它将启动回滚以中止它。
+// 为了避免不必要地中止过多的 txn，在预写后等待几秒钟再调用它是比较明智的做法。
 func (lr *LockResolver) GetTxnStatus(txnID uint64, callerStartTS uint64, primary []byte) (TxnStatus, error) {
 	var status TxnStatus
 	bo := NewBackoffer(context.Background(), cleanupMaxBackoff)
@@ -281,6 +292,7 @@ func (lr *LockResolver) getTxnStatusFromLock(bo *Backoffer, l *Lock, callerStart
 
 // getTxnStatus sends the CheckTxnStatus request to the TiKV server.
 // When rollbackIfNotExist is false, the caller should be careful with the txnNotFoundErr error.
+// 向 tikv 服务器发送 CheckTxnStatus 请求
 func (lr *LockResolver) getTxnStatus(bo *Backoffer, txnID uint64, primary []byte, callerStartTS, currentTS uint64, rollbackIfNotExist bool) (TxnStatus, error) {
 	if s, ok := lr.getResolved(txnID); ok {
 		return s, nil
@@ -299,7 +311,11 @@ func (lr *LockResolver) getTxnStatus(bo *Backoffer, txnID uint64, primary []byte
 	var req *tikvrpc.Request
 	// build the request
 	// YOUR CODE HERE (lab3).
-	panic("YOUR CODE HERE")
+	req = tikvrpc.NewRequest(tikvrpc.CmdCheckTxnStatus, &kvrpcpb.CheckTxnStatusRequest{
+		PrimaryKey: primary,
+		CurrentTs:  currentTS,
+		LockTs:     txnID,
+	})
 	for {
 		loc, err := lr.store.GetRegionCache().LocateKey(bo, primary)
 		if err != nil {
@@ -327,7 +343,35 @@ func (lr *LockResolver) getTxnStatus(bo *Backoffer, txnID uint64, primary []byte
 		logutil.BgLogger().Debug("cmdResp", zap.Bool("nil", cmdResp == nil))
 		// Assign status with response
 		// YOUR CODE HERE (lab3).
-		panic("YOUR CODE HERE")
+		// 1. LOCK
+		// 1.1 Lock expired -- orphan lock, fail to update TTL, crash recovery etc.
+		if cmdResp.Action == kvrpcpb.Action_TTLExpireRollback {
+			status.action = kvrpcpb.Action_TTLExpireRollback
+			return status, nil
+		}
+		// 1.2 Lock TTL -- active transaction holding the lock.
+		if cmdResp.Action == kvrpcpb.Action_NoAction && cmdResp.LockTtl > 0 {
+			status.ttl = cmdResp.LockTtl
+			return status, nil
+		}
+		// 2. NO LOCK
+		// 2.1 Txn Committed
+		if cmdResp.Action == kvrpcpb.Action_NoAction && cmdResp.CommitVersion > 0 {
+			status.commitTS = cmdResp.CommitVersion
+			lr.saveResolved(txnID, status)
+			return status, nil
+		}
+		// 2.2 Txn Rollbacked -- rollback itself, rollback by others, GC tomb etc.
+		if cmdResp.Action == kvrpcpb.Action_NoAction && cmdResp.CommitVersion == 0 && cmdResp.LockTtl == 0 {
+			lr.saveResolved(txnID, status)
+			return status, nil
+		}
+
+		// 2.3 No lock -- concurrence prewrite.
+		if cmdResp.Action == kvrpcpb.Action_LockNotExistRollback {
+			status.action = kvrpcpb.Action_LockNotExistRollback
+			return status, nil
+		}
 		return status, nil
 	}
 }
@@ -350,8 +394,14 @@ func (lr *LockResolver) resolveLock(bo *Backoffer, l *Lock, status TxnStatus, cl
 
 		// build the request
 		// YOUR CODE HERE (lab3).
-		panic("YOUR CODE HERE")
-
+		// 构造并发送ResolveLock请求
+		lreq := &kvrpcpb.ResolveLockRequest{
+			StartVersion: l.TxnID,
+		}
+		if status.IsCommitted() {
+			lreq.CommitVersion = status.CommitTS()
+		}
+		req = tikvrpc.NewRequest(tikvrpc.CmdResolveLock, lreq)
 		resp, err := lr.store.SendReq(bo, req, loc.Region, readTimeoutShort)
 		if err != nil {
 			return errors.Trace(err)

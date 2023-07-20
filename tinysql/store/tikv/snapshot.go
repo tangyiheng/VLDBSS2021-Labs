@@ -148,7 +148,21 @@ func (s *tikvSnapshot) get(bo *Backoffer, k kv.Key) ([]byte, error) {
 			//   1. The transaction is during commit, wait for a while and retry.
 			//   2. The transaction is dead with some locks left, resolve it.
 			// YOUR CODE HERE (lab3).
-			panic("YOUR CODE HERE")
+			lock, err := extractLockFromKeyErr(keyErr)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			msBeforeTxnExpired, err := cli.ResolveLocks(bo, s.version.Ver, []*Lock{lock})
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			// 如果ttl没有过期，则等待
+			if msBeforeTxnExpired > 0 {
+				err = bo.BackoffWithMaxSleep(boTxnLockFast, int(msBeforeTxnExpired), errors.New(keyErr.String()))
+				if err != nil {
+					return nil, errors.Trace(err)
+				}
+			}
 			continue
 		}
 		return val, nil

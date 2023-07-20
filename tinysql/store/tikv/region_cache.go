@@ -455,10 +455,34 @@ func (c *RegionCache) LocateRegionByID(bo *Backoffer, regionID uint64) (*KeyLoca
 // The return values are the separated groups, first region and error
 //
 // Help function `RegionCache.LocateKey`
+// GroupKeysByRegion将键按其所属的区域分组。
+// 特别地，它还返回第一个键的区域，该区域可以用作“PrimaryLockKey”，应该在其他键之前提交。
+// filter用于过滤一些不需要的键。
+// 返回值是分离的组、第一个区域和错误。
+// 辅助函数RegionCache.LocateKey
 func (c *RegionCache) GroupKeysByRegion(bo *Backoffer, keys [][]byte, filter func(key, regionStartKey []byte) bool) (map[RegionVerID][][]byte, RegionVerID, error) {
 	// YOUR CODE HERE (lab3).
-	panic("YOUR CODE HERE")
-	return nil, RegionVerID{}, nil
+	groups := make(map[RegionVerID][][]byte)
+	var first RegionVerID
+	var lastLoc *KeyLocation
+	for i, k := range keys {
+		if lastLoc == nil || !lastLoc.Contains(k) {
+			var err error
+			lastLoc, err = c.LocateKey(bo, k)
+			if err != nil {
+				return nil, first, errors.Trace(err)
+			}
+			if filter != nil && filter(k, lastLoc.StartKey) {
+				continue
+			}
+		}
+		id := lastLoc.Region
+		if i == 0 {
+			first = id
+		}
+		groups[id] = append(groups[id], k)
+	}
+	return groups, first, nil
 }
 
 // ListRegionIDsInKeyRange lists ids of regions in [start_key,end_key].

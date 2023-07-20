@@ -151,13 +151,22 @@ func (txn *tikvTxn) DelOption(opt kv.Option) {
 }
 
 // Commit function is the entrance for distribution transaction commit.
-// 		1. Check if the transaction is valid
-// 		2. Create two-phase committer
-// 		3. Prepare the mutations to be committed
-// 		4. Call execute function of two-phase committer
-//			4.1. Prewrite phase
-//			4.2. Commit phase
-//			4.3. Cleanup phase if transaction is failed
+//  1. Check if the transaction is valid
+//  2. Create two-phase committer
+//  3. Prepare the mutations to be committed
+//  4. Call execute function of two-phase committer
+//     4.1. Prewrite phase
+//     4.2. Commit phase
+//     4.3. Cleanup phase if transaction is failed
+//
+// 分布式事务提交的入口
+// 1.检查事务是否有效
+// 2.创建two-phase committer
+// 3.准备将要被提交的变更（写入）
+// 4.调用two-phase committer的执行函数
+// 4.1.进入prewrite阶段
+// 4.2.进入commit阶段
+// 4.3.如果事务失败进行cleanup阶段
 func (txn *tikvTxn) Commit(ctx context.Context) error {
 	if !txn.valid {
 		return kv.ErrInvalidTxn
