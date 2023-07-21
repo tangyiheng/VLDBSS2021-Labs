@@ -85,7 +85,8 @@ func (e *SimpleExec) executeBegin(ctx context.Context, s *ast.BeginStmt) error {
 		var err error
 		// Hint: step I.5.1
 		// YOUR CODE HERE (lab4)
-		panic("YOUR CODE HERE")
+		// 创建一个新的事务
+		err = e.ctx.NewTxn(ctx)
 		if err != nil {
 			return err
 		}
@@ -93,24 +94,29 @@ func (e *SimpleExec) executeBegin(ctx context.Context, s *ast.BeginStmt) error {
 	// With START TRANSACTION, autocommit remains disabled until you end
 	// the transaction with COMMIT or ROLLBACK. The autocommit mode then
 	// reverts to its previous state.
+	// 将 mysql.ServerStatusInTrans 变量设置为 true
 	e.ctx.GetSessionVars().SetStatusFlag(mysql.ServerStatusInTrans, true)
 	// Call ctx.Txn(true) to active pending txn.
 	var err error
 	// Hint: step I.5.1
 	// YOUR CODE HERE (lab4)
-	panic("YOUR CODE HERE")
+	// 等待这个事务获取到 startTS 开始时间戳
+	_, err = e.ctx.Txn(true)
 	return err
 }
 
 func (e *SimpleExec) executeCommit(s *ast.CommitStmt) {
 	// Hint: step I.5.2
 	// YOUR CODE HERE (lab4)
-	panic("YOUR CODE HERE")
+	// 将 mysql.ServerStatusInTrans 变量设置为 false
+	// 触发 finishStmt 被调用，进而调用 session.CommitTxn 提交事务
+	e.ctx.GetSessionVars().SetStatusFlag(mysql.ServerStatusInTrans, false)
 }
 
 func (e *SimpleExec) executeRollback(s *ast.RollbackStmt) error {
 	sessVars := e.ctx.GetSessionVars()
 	logutil.BgLogger().Debug("execute rollback statement", zap.Uint64("conn", sessVars.ConnectionID))
+	// 将 mysql.ServerStatusInTrans 变量设置为 false
 	sessVars.SetStatusFlag(mysql.ServerStatusInTrans, false)
 	var (
 		txn kv.Transaction
@@ -119,7 +125,8 @@ func (e *SimpleExec) executeRollback(s *ast.RollbackStmt) error {
 
 	// Hint: step I.5.3
 	// YOUR CODE HERE (lab4)
-	panic("YOUR CODE HERE")
+	// 获取当前事务，但是不会等待事务激活
+	txn, err = e.ctx.Txn(false)
 	if err != nil {
 		return err
 	}
@@ -127,7 +134,8 @@ func (e *SimpleExec) executeRollback(s *ast.RollbackStmt) error {
 		sessVars.TxnCtx.ClearDelta()
 		// Hint: step I.5.3
 		// YOUR CODE HERE (lab4)
-		panic("YOUR CODE HERE")
+		// 对事务进行 Rollback
+		err = txn.Rollback()
 		return err
 	}
 	return nil

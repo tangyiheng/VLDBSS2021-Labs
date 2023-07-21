@@ -173,12 +173,13 @@ func finishStmt(ctx context.Context, sctx sessionctx.Context, se *session, sessV
 		}
 		return meetsErr
 	}
-
+	// 判断 mysql.ServerStatusInTrans 变量是否为 false
 	if !sessVars.InTxn() {
 		var err error
 		// Hint: step I.5.2.1
 		// YOUR CODE HERE (lab4)
-		panic("YOUR CODE HERE")
+		// 调用 session.CommitTxn 提交事务
+		err = se.commitTxn(ctx)
 		if err != nil {
 			if _, ok := sql.(*executor.ExecStmt).StmtNode.(*ast.CommitStmt); ok {
 				err = errors.Annotatef(err, "previous statement: %s", se.GetSessionVars().PrevStmt)
@@ -228,7 +229,8 @@ func runStmt(ctx context.Context, sctx sessionctx.Context, s sqlexec.Statement) 
 
 	// Hint: step I.3.3
 	// YOUR CODE HERE (lab4)
-	panic("YOUR CODE HERE")
+	// 用执行器的 Exec 函数
+	rs, err = s.Exec(ctx)
 	sessVars.TxnCtx.StatementCount++
 	if !s.IsReadOnly() {
 		// Handle the stmt commit/rollback.
@@ -239,13 +241,18 @@ func runStmt(ctx context.Context, sctx sessionctx.Context, s sqlexec.Statement) 
 				} else {
 					// Hint: step I.3.4
 					// YOUR CODE HERE (lab4)
-					panic("YOUR CODE HERE")
+					// 这一条语句 Commit 到整个事务所属的 membuffer 当中去
+					err = sctx.StmtCommit()
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 		} else {
 			logutil.BgLogger().Error("get txn failed", zap.Error(err1))
 		}
 	}
+	// 在执行结束后调用
 	err = finishStmt(ctx, sctx, se, sessVars, err, s)
 
 	if se.txn.pending() {

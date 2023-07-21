@@ -31,14 +31,17 @@ type Compiler struct {
 // Compile compiles an ast.StmtNode to a physical plan.
 func (c *Compiler) Compile(ctx context.Context, stmtNode ast.StmtNode) (*ExecStmt, error) {
 	infoSchema := infoschema.GetInfoSchema(c.Ctx)
+	// 做一些合法性检查以及名字绑定
 	if err := plannercore.Preprocess(c.Ctx, stmtNode, infoSchema); err != nil {
 		return nil, err
 	}
 
+	// 制定查询计划，并优化
 	finalPlan, names, err := planner.Optimize(ctx, c.Ctx, stmtNode, infoSchema)
 	if err != nil {
 		return nil, err
 	}
+	// 构造 executor.ExecStmt结构：这个 ExecStmt 结构持有查询计划，是后续执行的基础
 	return &ExecStmt{
 		InfoSchema:  infoSchema,
 		Plan:        finalPlan,

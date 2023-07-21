@@ -537,6 +537,7 @@ func (cc *clientConn) PeerHost(hasPassword string) (host string, err error) {
 // Run reads client query and writes query result to client in for loop, if there is a panic during query handling,
 // it will be recovered and log the panic error.
 // This function returns and the connection is closed if there is an IO error or there is a panic.
+// 读取客户端查询语句并且向客户端写入查询结果
 func (cc *clientConn) Run(ctx context.Context) {
 	const size = 4096
 	defer func() {
@@ -572,6 +573,7 @@ func (cc *clientConn) Run(ctx context.Context) {
 		waitTimeout := cc.getSessionVarsWaitTimeout(ctx)
 		cc.pkt.setReadTimeout(time.Duration(waitTimeout) * time.Second)
 		start := time.Now()
+		// 读取网络包
 		data, err := cc.readPacket()
 		if err != nil {
 			if terror.ErrorNotEqual(err, io.EOF) {
@@ -599,7 +601,8 @@ func (cc *clientConn) Run(ctx context.Context) {
 
 		// Hint: step I.2
 		// YOUR CODE HERE (lab4)
-		panic("YOUR CODE HERE")
+		// 调用 dispatch() 方法处理收到的请求
+		err = cc.dispatch(ctx, data)
 		if err != nil {
 			if terror.ErrorEqual(err, io.EOF) {
 
@@ -666,8 +669,10 @@ func errStrForLog(err error) string {
 // dispatch handles client request based on command which is the first byte of the data.
 // It also gets a token from server which is used to limit the concurrently handling clients.
 // The most frequently used command is ComQuery.
+// 根据命令（data的第一个字节）处理客户端请求
 func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 	cc.lastPacket = data
+	// 第一个 byte 即为 Command 的类型
 	cmd := data[0]
 	data = data[1:]
 	vars := cc.ctx.GetSessionVars()
@@ -678,6 +683,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 
 	dataStr := string(hack.String(data))
 
+	// 根据 Command 的类型，调用对应的处理函数
 	switch cmd {
 	case mysql.ComSleep:
 		// TODO: According to mysql document, this command is supposed to be used only internally.
@@ -691,6 +697,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 		// Input payload may end with byte '\0', we didn't find related mysql document about it, but mysql
 		// implementation accept that case. So trim the last '\0' here as if the payload an EOF string.
 		// See http://dev.mysql.com/doc/internals/en/com-query.html
+		// 最常用的 Command 是 COM_QUERY
 		if len(data) > 0 && data[len(data)-1] == 0 {
 			data = data[:len(data)-1]
 			dataStr = string(hack.String(data))
@@ -698,7 +705,8 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 		var err error
 		// Hint: step I.2
 		// YOUR CODE HERE (lab4)
-		panic("YOUR CODE HERE")
+		// 对于 Command Query，从客户端发送来的主要是 SQL 文本，处理函数是 handleQuery() :
+		err = cc.handleQuery(ctx, dataStr)
 		return err
 	case mysql.ComPing:
 		return cc.writeOK()
@@ -824,11 +832,13 @@ func (cc *clientConn) writeEOF(serverStatus uint16) error {
 }
 
 // handleQuery executes the sql query string and writes result set or result ok to the client.
+// 执行 sql 查询字符串，并将结果集或结果 ok 写入客户端。
 func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 	var rss []ResultSet
 	// Hint: step I.3
 	// YOUR CODE HERE (lab4)
-	panic("YOUR CODE HERE")
+	// 用具体的执行逻辑，执行一条SQL语句（从这里进入 SQL 核心层）
+	rss, err = cc.ctx.Execute(ctx, sql)
 
 	if err != nil {
 		return err
@@ -842,6 +852,8 @@ func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 	}
 	if rss != nil {
 		if len(rss) == 1 {
+			// 经过一系列处理，拿到 SQL 语句的结果后会调用 writeResultset 方法把结果写回客户端
+			// 按照 MySQL 协议的要求，将结果（包括 Field 列表、每行数据）写回客户端
 			err = cc.writeResultset(ctx, rss[0], false, 0, 0)
 		} else {
 			err = cc.writeMultiResultset(ctx, rss, false)
@@ -909,6 +921,7 @@ func (cc *clientConn) writeResultset(ctx context.Context, rs ResultSet, binary b
 	if mysql.HasCursorExistsFlag(serverStatus) {
 		err = cc.writeChunksWithFetchSize(ctx, rs, serverStatus, fetchSize)
 	} else {
+		// 为了流式的将执行的结果返回给客户端，而不是将所有结果存放在 DBMS 的内存中
 		err = cc.writeChunks(ctx, rs, binary, serverStatus)
 	}
 	if err != nil {
@@ -946,7 +959,8 @@ func (cc *clientConn) writeChunks(ctx context.Context, rs ResultSet, binary bool
 		// Here server.tidbResultSet implements Next method.
 		// Hint: step I.4.4
 		// YOUR CODE HERE (lab4)
-		panic("YOUR CODE HERE")
+		// 调用执行器的 Next 函数，返回一条数据
+		err = rs.Next(ctx, req)
 		if err != nil {
 			return err
 		}

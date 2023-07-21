@@ -271,6 +271,11 @@ lab3: failpoint-enable
 	go test -timeout 600s ./store/tikv
 	@$(FAILPOINT_DISABLE)
 
+lab4:
+	go test -timeout 600s ./server -check.f ^testSuiteLab4A$
+	go test -timeout 600s ./session -check.f ^lab4ASessionSuite$
+	go test -timeout 600s ./executor -check.f ^testSuiteLab4B$
+	go test -timeout 600s ./executor -check.f ^testSuiteLab4C$
 
 lab4a: 
 	go test -timeout 600s ./server -check.f ^testSuiteLab4A$
